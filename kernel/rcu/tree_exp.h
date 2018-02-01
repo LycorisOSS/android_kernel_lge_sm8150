@@ -32,7 +32,7 @@ static void rcu_exp_gp_seq_start(struct rcu_state *rsp)
  * Return then value that expedited-grace-period counter will have
  * at the end of the current grace period.
  */
-static unsigned long rcu_exp_gp_seq_endval(struct rcu_state *rsp)
+static __maybe_unused unsigned long rcu_exp_gp_seq_endval(struct rcu_state *rsp)
 {
 	return rcu_seq_endval(&rsp->expedited_sequence);
 }
@@ -475,9 +475,54 @@ static void sync_rcu_exp_select_cpus(struct rcu_state *rsp,
 			sync_rcu_exp_select_node_cpus(&rnp->rew.rew_work);
 			continue;
 		}
-		INIT_WORK(&rnp->rew.rew_work, sync_rcu_exp_select_node_cpus);
-		queue_work_on(rnp->grplo, rcu_par_gp_wq, &rnp->rew.rew_work);
-		rnp->exp_need_flush = true;
+		mask_ofl_ipi = rnp->expmask & ~mask_ofl_test;
+
+		/*
+		 * Need to wait for any blocked tasks as well.  Note that
+		 * additional blocking tasks will also block the expedited
+		 * GP until such time as the ->expmask bits are cleared.
+		 */
+		if (rcu_preempt_has_tasks(rnp))
+			rnp->exp_tasks = rnp->blkd_tasks.next;
+		raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
+
+		/* IPI the remaining CPUs for expedited quiescent state. */
+		for_each_leaf_node_possible_cpu(rnp, cpu) {
+			unsigned long mask = leaf_node_cpu_bit(rnp, cpu);
+			struct rcu_data *rdp = per_cpu_ptr(rsp->rda, cpu);
+
+			if (!(mask_ofl_ipi & mask))
+				continue;
+retry_ipi:
+			if (rcu_dynticks_in_eqs_since(rdp->dynticks,
+						      rdp->exp_dynticks_snap)) {
+				mask_ofl_test |= mask;
+				continue;
+			}
+			ret = smp_call_function_single(cpu, func, rsp, 0);
+			if (!ret) {
+				mask_ofl_ipi &= ~mask;
+				continue;
+			}
+			/* Failed, raced with CPU hotplug operation. */
+			raw_spin_lock_irqsave_rcu_node(rnp, flags);
+			if ((rnp->qsmaskinitnext & mask) &&
+			    (rnp->expmask & mask)) {
+				/* Online, so delay for a bit and try again. */
+				raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
+				trace_rcu_exp_grace_period(rsp->name, rcu_exp_gp_seq_endval(rsp), TPS("selectofl"));
+				schedule_timeout_uninterruptible(1);
+				goto retry_ipi;
+			}
+			/* CPU really is offline, so we can ignore it. */
+			if (!(rnp->expmask & mask))
+				mask_ofl_ipi &= ~mask;
+			raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
+		}
+		/* Report quiescent states for those that went offline. */
+		mask_ofl_test |= mask_ofl_ipi;
+		if (mask_ofl_test)
+			rcu_report_exp_cpu_mult(rsp, rnp, mask_ofl_test, false);
 	}
 
 	/* Wait for workqueue jobs (if any) to complete. */
