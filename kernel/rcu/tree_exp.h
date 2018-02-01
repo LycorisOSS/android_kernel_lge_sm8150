@@ -32,7 +32,7 @@ static void rcu_exp_gp_seq_start(struct rcu_state *rsp)
  * Return then value that expedited-grace-period counter will have
  * at the end of the current grace period.
  */
-static __maybe_unused unsigned long rcu_exp_gp_seq_endval(struct rcu_state *rsp)
+static unsigned long rcu_exp_gp_seq_endval(struct rcu_state *rsp)
 {
 	return rcu_seq_endval(&rsp->expedited_sequence);
 }
@@ -462,8 +462,6 @@ static void sync_rcu_exp_select_cpus(struct rcu_state *rsp,
 	trace_rcu_exp_grace_period(rsp->name, rcu_exp_gp_seq_endval(rsp), TPS("reset"));
 	sync_exp_reset_tree(rsp);
 	trace_rcu_exp_grace_period(rsp->name, rcu_exp_gp_seq_endval(rsp), TPS("select"));
-
-	/* Schedule work for each leaf rcu_node structure. */
 	rcu_for_each_leaf_node(rsp, rnp) {
 		rnp->exp_need_flush = false;
 		if (!READ_ONCE(rnp->expmask))
