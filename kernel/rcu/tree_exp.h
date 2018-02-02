@@ -462,76 +462,23 @@ static void sync_rcu_exp_select_cpus(struct rcu_state *rsp,
 	trace_rcu_exp_grace_period(rsp->name, rcu_exp_gp_seq_endval(rsp), TPS("reset"));
 	sync_exp_reset_tree(rsp);
 	trace_rcu_exp_grace_period(rsp->name, rcu_exp_gp_seq_endval(rsp), TPS("select"));
+
+	/* Schedule work for each leaf rcu_node structure. */
 	rcu_for_each_leaf_node(rsp, rnp) {
-		raw_spin_lock_irqsave_rcu_node(rnp, flags);
-
-		/* Each pass checks a CPU for identity, offline, and idle. */
-		mask_ofl_test = 0;
-		for_each_leaf_node_cpu_mask(rnp, cpu, rnp->expmask) {
-			unsigned long mask = leaf_node_cpu_bit(rnp, cpu);
-			struct rcu_data *rdp = per_cpu_ptr(rsp->rda, cpu);
-			struct rcu_dynticks *rdtp = per_cpu_ptr(&rcu_dynticks, cpu);
-			int snap;
-
-			if (raw_smp_processor_id() == cpu ||
-			    !(rnp->qsmaskinitnext & mask)) {
-				mask_ofl_test |= mask;
-			} else {
-				snap = rcu_dynticks_snap(rdtp);
-				if (rcu_dynticks_in_eqs(snap))
-					mask_ofl_test |= mask;
-				else
-					rdp->exp_dynticks_snap = snap;
-			}
+		rnp->exp_need_flush = false;
+		if (!READ_ONCE(rnp->expmask))
+			continue; /* Avoid early boot non-existent wq. */
+		rnp->rew.rew_func = func;
+		rnp->rew.rew_rsp = rsp;
+		if (!READ_ONCE(rcu_par_gp_wq) ||
+		    rcu_scheduler_active != RCU_SCHEDULER_RUNNING) {
+			/* No workqueues yet. */
+			sync_rcu_exp_select_node_cpus(&rnp->rew.rew_work);
+			continue;
 		}
-		mask_ofl_ipi = rnp->expmask & ~mask_ofl_test;
-
-		/*
-		 * Need to wait for any blocked tasks as well.  Note that
-		 * additional blocking tasks will also block the expedited
-		 * GP until such time as the ->expmask bits are cleared.
-		 */
-		if (rcu_preempt_has_tasks(rnp))
-			rnp->exp_tasks = rnp->blkd_tasks.next;
-		raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
-
-		/* IPI the remaining CPUs for expedited quiescent state. */
-		for_each_leaf_node_cpu_mask(rnp, cpu, rnp->expmask) {
-			unsigned long mask = leaf_node_cpu_bit(rnp, cpu);
-			struct rcu_data *rdp = per_cpu_ptr(rsp->rda, cpu);
-
-			if (!(mask_ofl_ipi & mask))
-				continue;
-retry_ipi:
-			if (rcu_dynticks_in_eqs_since(rdp->dynticks,
-						      rdp->exp_dynticks_snap)) {
-				mask_ofl_test |= mask;
-				continue;
-			}
-			ret = smp_call_function_single(cpu, func, rsp, 0);
-			if (!ret) {
-				mask_ofl_ipi &= ~mask;
-				continue;
-			}
-			/* Failed, raced with CPU hotplug operation. */
-			raw_spin_lock_irqsave_rcu_node(rnp, flags);
-			if ((rnp->qsmaskinitnext & mask) &&
-			    (rnp->expmask & mask)) {
-				/* Online, so delay for a bit and try again. */
-				raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
-				trace_rcu_exp_grace_period(rsp->name, rcu_exp_gp_seq_endval(rsp), TPS("selectofl"));
-				schedule_timeout_uninterruptible(1);
-				goto retry_ipi;
-			}
-			/* CPU really is offline, so we can ignore it. */
-			if (!(rnp->expmask & mask))
-				mask_ofl_ipi &= ~mask;
-			raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
-		}
-		/* Report quiescent states for those that went offline. */
-		mask_ofl_test |= mask_ofl_ipi;
-		if (mask_ofl_test)
-			rcu_report_exp_cpu_mult(rsp, rnp, mask_ofl_test, false);
+		INIT_WORK(&rnp->rew.rew_work, sync_rcu_exp_select_node_cpus);
+		queue_work_on(rnp->grplo, rcu_par_gp_wq, &rnp->rew.rew_work);
+		rnp->exp_need_flush = true;
 	}
 
 	/* Wait for workqueue jobs (if any) to complete. */
