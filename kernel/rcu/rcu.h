@@ -276,9 +276,6 @@ static inline void rcu_init_levelspread(int *levelspread, const int *levelcnt)
 /* Is this rcu_node a leaf? */
 #define rcu_is_leaf_node(rnp) ((rnp)->level == rcu_num_lvls - 1)
 
-/* Is this rcu_node the last leaf? */
-#define rcu_is_last_leaf_node(rsp, rnp) ((rnp) == &(rsp)->node[rcu_num_nodes - 1])
-
 /*
  * Do a full breadth-first scan of the rcu_node structures for the
  * specified rcu_state structure.
@@ -293,8 +290,7 @@ static inline void rcu_init_levelspread(int *levelspread, const int *levelcnt)
  * rcu_node tree with but one rcu_node structure, this loop is a no-op.
  */
 #define rcu_for_each_nonleaf_node_breadth_first(rsp, rnp) \
-	for ((rnp) = &(rsp)->node[0]; \
-	     (rnp) < (rsp)->level[rcu_num_lvls - 1]; (rnp)++)
+	for ((rnp) = &(rsp)->node[0]; !rcu_is_leaf_node(rsp, rnp); (rnp)++)
 
 /*
  * Scan the leaves of the rcu_node hierarchy for the specified rcu_state
@@ -303,7 +299,7 @@ static inline void rcu_init_levelspread(int *levelspread, const int *levelcnt)
  * It is still a leaf node, even if it is also the root node.
  */
 #define rcu_for_each_leaf_node(rsp, rnp) \
-	for ((rnp) = (rsp)->level[rcu_num_lvls - 1]; \
+	for ((rnp) = rcu_first_leaf_node(rsp); \
 	     (rnp) < &(rsp)->node[rcu_num_nodes]; (rnp)++)
 
 /*
