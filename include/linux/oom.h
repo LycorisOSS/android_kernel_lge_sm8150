@@ -127,4 +127,81 @@ extern void wake_oom_reaper(struct task_struct *tsk);
 extern int sysctl_oom_dump_tasks;
 extern int sysctl_oom_kill_allocating_task;
 extern int sysctl_panic_on_oom;
+extern int sysctl_reap_mem_on_sigkill;
+
+/* calls for LMK reaper */
+extern void add_to_oom_reaper(struct task_struct *p);
+
+#else /* defined(CONFIG_DISABLE_OOM_KILLER) */
+
+static __maybe_unused struct mutex oom_lock;
+static __maybe_unused struct mutex oom_adj_mutex;
+
+static inline void __oom_reap_task_mm(struct mm_struct *mm)
+{
+	return;
+}
+
+static inline unsigned long oom_badness(struct task_struct *p,
+		struct mem_cgroup *memcg, const nodemask_t *nodemask,
+		unsigned long totalpages)
+{
+	return 0;
+}
+
+static inline bool out_of_memory(struct oom_control *oc)
+{
+	return false;
+}
+
+static inline void exit_oom_victim(void)
+{
+	return;
+}
+
+static inline int register_oom_notifier(struct notifier_block *nb)
+{
+	return 0;
+}
+
+static inline int unregister_oom_notifier(struct notifier_block *nb)
+{
+	return 0;
+}
+
+static inline bool oom_killer_disable(signed long timeout)
+{
+	return true;
+}
+
+static inline void oom_killer_enable(void)
+{
+	return;
+}
+
+static inline struct task_struct *find_lock_task_mm(struct task_struct *p)
+{
+	struct task_struct *t = NULL;
+	return t;
+}
+
+static inline void dump_tasks(struct mem_cgroup *memcg,
+		const nodemask_t *nodemask)
+{
+	return;
+}
+
+static inline void wake_oom_reaper(struct task_struct *tsk)
+{
+	return;
+}
+
+/* calls for LMK reaper */
+static inline void add_to_oom_reaper(struct task_struct *p)
+{
+	return;
+}
+
+#endif /* !defined(CONFIG_DISABLE_OOM_KILLER) */
+
 #endif /* _INCLUDE_LINUX_OOM_H */
