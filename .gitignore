@@ -128,3 +128,6 @@ kernel/configs/android-*.cfg
 
 out
 release
+
+# Ignore AnyKernel folder.
+anykernel/
