@@ -203,5 +203,3 @@ static inline void add_to_oom_reaper(struct task_struct *p)
 }
 
 #endif /* !defined(CONFIG_DISABLE_OOM_KILLER) */
-
-#endif /* _INCLUDE_LINUX_OOM_H */
