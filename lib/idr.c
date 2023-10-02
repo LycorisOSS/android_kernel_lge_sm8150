@@ -129,6 +129,42 @@ int idr_for_each(const struct idr *idr,
 EXPORT_SYMBOL(idr_for_each);
 
 /**
+ * idr_get_next_ul() - Find next populated entry.
+ * @idr: IDR handle.
+ * @nextid: Pointer to an ID.
+ *
+ * Returns the next populated entry in the tree with an ID greater than
+ * or equal to the value pointed to by @nextid.  On exit, @nextid is updated
+ * to the ID of the found value.  To use in a loop, the value pointed to by
+ * nextid must be incremented by the user.
+ */
+void *idr_get_next_ul(struct idr *idr, unsigned long *nextid)
+{
+	struct radix_tree_iter iter;
+	void __rcu **slot;
+	void *entry = NULL;
+	unsigned long base = idr->idr_base;
+	unsigned long id = *nextid;
+
+	id = (id < base) ? 0 : id - base;
+	radix_tree_for_each_slot(slot, &idr->idr_rt, &iter, id) {
+		entry = rcu_dereference_raw(*slot);
+		if (!entry)
+			continue;
+		if (!xa_is_internal(entry))
+			break;
+		if (slot != &idr->idr_rt.xa_head && !xa_is_retry(entry))
+			break;
+		slot = radix_tree_iter_retry(&iter);
+	}
+	if (!slot)
+		return NULL;
+
+	*nextid = iter.index + base;
+	return entry;
+}
+EXPORT_SYMBOL(idr_get_next_ul);
+/**
  * idr_get_next() - Find next populated entry.
  * @idr: IDR handle.
  * @nextid: Pointer to an ID.
@@ -165,30 +201,6 @@ void *idr_get_next(struct idr *idr, int *nextid)
 	return entry;
 }
 EXPORT_SYMBOL(idr_get_next);
-
-/**
- * idr_get_next_ul() - Find next populated entry.
- * @idr: IDR handle.
- * @nextid: Pointer to an ID.
- *
- * Returns the next populated entry in the tree with an ID greater than
- * or equal to the value pointed to by @nextid.  On exit, @nextid is updated
- * to the ID of the found value.  To use in a loop, the value pointed to by
- * nextid must be incremented by the user.
- */
-void *idr_get_next_ul(struct idr *idr, unsigned long *nextid)
-{
-	struct radix_tree_iter iter;
-	void __rcu **slot;
-
-	slot = radix_tree_iter_find(&idr->idr_rt, &iter, *nextid);
-	if (!slot)
-		return NULL;
-
-	*nextid = iter.index;
-	return rcu_dereference_raw(*slot);
-}
-EXPORT_SYMBOL(idr_get_next_ul);
 
 /**
  * idr_replace - replace pointer for given id

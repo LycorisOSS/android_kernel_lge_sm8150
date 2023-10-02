@@ -20,6 +20,7 @@
 #include <linux/init.h>
 #include <linux/kmod.h>
 #include <linux/err.h>
+#include <linux/idr.h>
 #include <linux/module.h>
 #include <net/net_namespace.h>
 #include <net/sock.h>
@@ -117,12 +118,13 @@ static int tcf_dump_walker(struct tcf_idrinfo *idrinfo, struct sk_buff *skb,
 	struct idr *idr = &idrinfo->action_idr;
 	struct tc_action *p;
 	unsigned long id = 1;
+	unsigned long tmp;
 
 	spin_lock_bh(&idrinfo->lock);
 
 	s_i = cb->args[0];
 
-	idr_for_each_entry_ul(idr, p, id) {
+	idr_for_each_entry_ul(idr, p, tmp, id) {
 		index++;
 		if (index < s_i)
 			continue;
@@ -174,6 +176,7 @@ static int tcf_del_walker(struct tcf_idrinfo *idrinfo, struct sk_buff *skb,
 	struct idr *idr = &idrinfo->action_idr;
 	struct tc_action *p;
 	unsigned long id = 1;
+	unsigned long tmp;
 
 	nest = nla_nest_start(skb, 0);
 	if (nest == NULL)
@@ -181,7 +184,7 @@ static int tcf_del_walker(struct tcf_idrinfo *idrinfo, struct sk_buff *skb,
 	if (nla_put_string(skb, TCA_KIND, ops->kind))
 		goto nla_put_failure;
 
-	idr_for_each_entry_ul(idr, p, id) {
+	idr_for_each_entry_ul(idr, p, tmp, id) {
 		ret = __tcf_idr_release(p, false, true);
 		if (ret == ACT_P_DELETED) {
 			module_put(ops->owner);
@@ -360,8 +363,9 @@ void tcf_idrinfo_destroy(const struct tc_action_ops *ops,
 	struct tc_action *p;
 	int ret;
 	unsigned long id = 1;
+	unsigned long tmp;
 
-	idr_for_each_entry_ul(idr, p, id) {
+	idr_for_each_entry_ul(idr, p, tmp, id) {
 		ret = __tcf_idr_release(p, false, true);
 		if (ret == ACT_P_DELETED)
 			module_put(ops->owner);

@@ -123,6 +123,7 @@
 struct menu_device {
 	int             needs_update;
 	int             tick_wakeup;
+	int		last_state_idx;
 
 	unsigned int	next_timer_us;
 	unsigned int	predicted_us;
